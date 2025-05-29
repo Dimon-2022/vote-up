@@ -1,52 +1,105 @@
 import { useEffect, useReducer } from "react";
 
-const initialValue = { candidates: [], inputValue: "" };
+const initialState = { candidates: [], newCandidate: "", status: "loading" };
+
+function incrementVote(state, name) {
+  return {
+    ...state,
+    candidates: state.candidates.map((candidate) =>
+      candidate.name === name
+        ? { ...candidate, votes: candidate.votes + 1 }
+        : candidate
+    ),
+  };
+}
+
+function decrementVote(state, name) {
+  return {
+    ...state,
+    candidates: state.candidates.map((candidate) =>
+      candidate.name === name
+        ? { ...candidate, votes: Math.max(candidate.votes - 1, 0) }
+        : candidate
+    ),
+  };
+}
 
 function reducer(state, action) {
   switch (action.type) {
-    case "addCandidates":
-      return { ...state, candidates: action.payload };
-    case "addVote":
-      let candidates = [...state.candidates].map((candidate) => {
-        if (candidate.id === action.payload) {
-          return { ...candidate, votes: candidate.votes++ };
-        }
-        return candidate;
-      });
+    case "dataReceived":
+      return { ...state, candidates: action.payload, status: "ready" };
+    case "dataFailed":
+      return { ...state, status: "error" };
+    case "reset_votes":
+      return {
+        ...state,
+        candidates: state.candidates.map((candidate) => ({
+          ...candidate,
+          votes: 0,
+        })),
+      };
+    case "update_new_candidate":
+      return { ...state, newCandidate: action.payload };
+    case "add_candidate":
+      if (
+        !action.payload.trim() ||
+        state.candidates.some((candidate) => candidate.name === action.payload)
+      ) {
+        return state;
+      }
 
-      return { ...state, candidates };
-
-    case "subtractVote":
-      let candidates1 = [...state.candidates].map((candidate) => {
-        if (candidate.id === action.payload) {
-          return { ...candidate, votes: candidate.votes-- };
-        }
-        return candidate;
-      });
-      return { ...state, candidates: candidates1 };
-
-    case "reset":
-      let candidates2 = [...state.candidates].map((candidate) => {
-        return { ...candidate, votes: 0 };
-      });
-
-      return { ...state, candidates: candidates2 };
-
-    case "addNewCandidate":
-      return { ...state, candidates: [...state.candidates, action.payload] };
-
-     case "setInput":
-      return {...state, inputValue: action.payload}; 
+      return {
+        ...state,
+        candidates: [...state.candidates, { name: action.payload, votes: 0 }],
+        newCandidate: "",
+      };
+    case "vote_up":
+      return incrementVote(state, action.payload);
+    case "vote_down":
+      return decrementVote(state, action.payload);
   }
 }
+// case "addCandidates":
+//   return { ...state, candidates: action.payload };
+// case "addVote":
+//   let candidates = [...state.candidates].map((candidate) => {
+//     if (candidate.id === action.payload) {
+//       return { ...candidate, votes: candidate.votes++ };
+//     }
+//     return candidate;
+//   });
+
+//   return { ...state, candidates };
+
+// case "subtractVote":
+//   let candidates1 = [...state.candidates].map((candidate) => {
+//     if (candidate.id === action.payload) {
+//       return { ...candidate, votes: candidate.votes-- };
+//     }
+//     return candidate;
+//   });
+//   return { ...state, candidates: candidates1 };
+
+// case "reset":
+//   let candidates2 = [...state.candidates].map((candidate) => {
+//     return { ...candidate, votes: 0 };
+//   });
+
+//   return { ...state, candidates: candidates2 };
+
+// case "addNewCandidate":
+//   return { ...state, candidates: [...state.candidates, action.payload] };
+
+//  case "setInput":
+//   return {...state, inputValue: action.payload};
 
 function VoteTracker() {
   // If status is "ready", render main content
 
-  const [state, dispatch] = useReducer(reducer, initialValue);
+  const [state, dispatch] = useReducer(reducer, initialState);
 
   useEffect(() => {
-    async function getCandidates() {
+    async function fetchData() {
       try {
         const res = await fetch("http://localhost:9000/candidates");
 
@@ -54,15 +107,23 @@ function VoteTracker() {
           throw new Error("Failed to get candidates");
         }
 
-        const candidates = await res.json();
-        dispatch({ type: "addCandidates", payload: candidates });
+        const data = await res.json();
+        dispatch({ type: "dataReceived", payload: data });
       } catch (err) {
-        console.log(err.message);
+        dispatch({ type: "dataFailed" });
       }
     }
 
-    getCandidates();
+    fetchData();
   }, []);
+
+  if (state.status === "loading") {
+    return <p>Loading data, please wait...</p>;
+  }
+
+  if (state.status === "error") {
+    return <p>Failed to fetch data. Please try again</p>;
+  }
 
   return (
     <>
@@ -73,14 +134,14 @@ function VoteTracker() {
             {candidate.name}: {candidate.votes} votes
             <button
               onClick={() => {
-                dispatch({ type: "addVote", payload: candidate.id });
+                dispatch({ type: "vote_up", payload: candidate.name });
               }}
             >
               +
             </button>
             <button
               onClick={() =>
-                dispatch({ type: "subtractVote", payload: candidate.id })
+                dispatch({ type: "vote_down", payload: candidate.name })
               }
             >
               -
@@ -88,19 +149,30 @@ function VoteTracker() {
           </li>
         ))}
       </ul>
-      <button onClick={() => dispatch({ type: "reset" })}>Reset Votes</button>
+      <button onClick={() => dispatch({ type: "reset_votes" })}>
+        Reset Votes
+      </button>
 
       <div>
         <h2>Add Candidate</h2>
         <input
           type="text"
           placeholder="Candidate name"
-          value={state.inputValue}
+          value={state.newCandidate}
           onChange={(e) => {
-           dispatch({type: "setInput", payload: e.target.value});
+            dispatch({ type: "update_new_candidate", payload: e.target.value });
           }}
         />
-        <button onClick={() => dispatch({ type: "addNewCandidate", payload: { id: state.candidates.length + 1, name: state.inputValue, votes: 0 } })}>Add</button>
+        <button
+          onClick={() =>
+            dispatch({
+              type: "add_candidate",
+              payload: state.newCandidate,
+            })
+          }
+        >
+          Add
+        </button>
       </div>
     </>
   );
